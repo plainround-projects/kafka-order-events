@@ -38,7 +38,9 @@ class KafkaTopicProbe:
 
     def _partitions(self) -> set[int]:
         consumer: Any = KafkaConsumer(
-            bootstrap_servers=self._settings.bootstrap_servers, request_timeout_ms=self._settings.request_timeout_ms
+            bootstrap_servers=self._settings.bootstrap_servers,
+            enable_auto_commit=False,
+            request_timeout_ms=self._settings.request_timeout_ms,
         )
         try:
             return set(consumer.partitions_for_topic(self._settings.topic) or ())

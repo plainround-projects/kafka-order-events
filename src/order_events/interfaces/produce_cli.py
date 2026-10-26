@@ -20,6 +20,7 @@ from .arguments import non_negative_float, positive_int
 
 
 def build_parser() -> argparse.ArgumentParser:
+    """The argument parser of the producer program."""
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawTextHelpFormatter)
     parser.add_argument("--orders", type=positive_int, default=1000, help="how many orders (three events each)")
     parser.add_argument("--start", type=positive_int, default=1, help="number of the first order")
@@ -38,6 +39,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
+    """Publish orders; returns the process exit code."""
     args = build_parser().parse_args(argv)
     try:
         settings = Settings.from_env()

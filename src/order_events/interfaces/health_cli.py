@@ -15,6 +15,7 @@ from ..infrastructure.settings import ConfigurationError, Settings
 
 
 def main(_argv: Sequence[str] | None = None) -> int:
+    """Check the broker and the topic; returns 0 when healthy."""
     try:
         settings = Settings.from_env()
     except ConfigurationError as error:

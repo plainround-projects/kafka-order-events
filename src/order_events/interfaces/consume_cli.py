@@ -25,6 +25,7 @@ REPORT_LIMIT = 5  # log the first few out-of-order events; the summary counts al
 
 
 def build_parser() -> argparse.ArgumentParser:
+    """The argument parser of the consumer program."""
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawTextHelpFormatter)
     parser.add_argument("--name", default="consumer", help="client id and label in the output")
     parser.add_argument("--group", default=None, help="defaults to $GROUP_ID")
@@ -48,6 +49,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
+    """Run one consumer-group member; returns the process exit code."""
     args = build_parser().parse_args(argv)
     try:
         settings = Settings.from_env()

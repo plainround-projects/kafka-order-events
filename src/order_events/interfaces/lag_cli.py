@@ -16,6 +16,7 @@ from ..infrastructure.settings import ConfigurationError, Settings
 
 
 def main(argv: Sequence[str] | None = None) -> int:
+    """Print the group's lag per partition; returns the process exit code."""
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawTextHelpFormatter)
     parser.add_argument("--group", default=None, help="defaults to $GROUP_ID")
     parser.add_argument("--topic", default=None, help="defaults to $TOPIC")

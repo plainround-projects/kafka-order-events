@@ -11,6 +11,8 @@ from .ports import Delivery, EventSource
 
 @dataclass(frozen=True, slots=True)
 class ReadPlan:
+    """How a consumer reads: when to stop, how much artificial work per event, which orders to check."""
+
     idle_timeout_seconds: float | None = None  # None: run until `stop` says so
     work_delay_seconds: float = 0.0  # artificial work per event, to build lag on purpose
     order_prefix: str = ""  # only check orders whose id starts with this
@@ -19,6 +21,8 @@ class ReadPlan:
 
 @dataclass(frozen=True, slots=True)
 class ReadResult:
+    """What a read found: events read, the ordering report and the histories of the first orders."""
+
     events_read: int
     report: OrderingReport
     first_histories: tuple[tuple[str, tuple[int, ...], tuple[str, ...]], ...]

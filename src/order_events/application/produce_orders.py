@@ -12,6 +12,8 @@ from .ports import EventPublisher
 
 @dataclass(frozen=True, slots=True)
 class ProducePlan:
+    """What to publish: how many orders, from which number, keyed or not, how widely interleaved."""
+
     orders: int
     start: int = 1
     prefix: str = "order"

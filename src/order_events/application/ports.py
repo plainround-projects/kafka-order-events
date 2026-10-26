@@ -19,6 +19,8 @@ class Delivery:
 
 
 class EventPublisher(Protocol):
+    """Sends order events to the log."""
+
     def publish(self, event: OrderEvent, key: str | None) -> None:
         """Send one event. `key` decides the partition; None lets the client choose."""
 
@@ -27,6 +29,8 @@ class EventPublisher(Protocol):
 
 
 class EventSource(Protocol):
+    """Reads order events from the log as a member of a consumer group."""
+
     def poll(self, timeout_seconds: float) -> Sequence[Delivery]:
         """Return the next deliveries, or an empty sequence when none arrived in time."""
 
@@ -35,6 +39,8 @@ class EventSource(Protocol):
 
 
 class OffsetReader(Protocol):
+    """Reads log-end and committed offsets without joining a group."""
+
     def end_offsets(self, topic: str) -> Mapping[int, int]:
         """Log-end offset per partition."""
 
@@ -43,6 +49,8 @@ class OffsetReader(Protocol):
 
 
 class HealthProbe(Protocol):
+    """A dependency check that reports a short detail or fails with ProbeFailedError."""
+
     name: str
 
     def check(self) -> str:

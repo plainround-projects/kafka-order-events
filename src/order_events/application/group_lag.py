@@ -7,4 +7,5 @@ from .ports import OffsetReader
 
 
 def group_lag(reader: OffsetReader, group_id: str, topic: str) -> dict[int, int]:
+    """The lag per partition of a consumer group on a topic."""
     return compute_lag(reader.end_offsets(topic), reader.committed_offsets(group_id, topic))

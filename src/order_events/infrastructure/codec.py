@@ -9,6 +9,7 @@ from ..domain.events import EventType, OrderEvent
 
 
 def encode_event(event: OrderEvent) -> bytes:
+    """The JSON bytes of an order event."""
     payload = {"orderId": event.order_id, "type": event.type.value, "sequence": event.sequence, "ts": event.ts}
     return json.dumps(payload).encode()
 

@@ -32,15 +32,19 @@ def produce_orders(
     rng: random.Random,
     clock: Callable[[], float],
     pause: Callable[[float], None],
+    stop: Callable[[], bool] = lambda: False,
 ) -> int:
     """Publish every event of `plan.orders` orders and return how many events were sent.
 
     Keyed events use the order id as the key, so one order's events share a partition. Unkeyed events
-    are the failure mode the lesson demonstrates.
+    are the failure mode the lesson demonstrates. When `stop()` turns true (a shutdown signal), the
+    events already published are flushed and the count so far is returned.
     """
     order_ids = (order_id_for(number, plan.prefix) for number in range(plan.start, plan.start + plan.orders))
     sent = 0
     for event in interleave(order_ids, plan.window, rng, clock):
+        if stop():
+            break
         publisher.publish(event, event.order_id if plan.keyed else None)
         sent += 1
         if plan.max_pause_seconds:

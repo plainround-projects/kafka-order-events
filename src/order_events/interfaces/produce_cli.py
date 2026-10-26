@@ -16,6 +16,7 @@ from ..application.produce_orders import ProducePlan, produce_orders
 from ..infrastructure.kafka_publisher import KafkaEventPublisher
 from ..infrastructure.logging import configure_logging
 from ..infrastructure.settings import ConfigurationError, Settings
+from ..infrastructure.shutdown import ShutdownSignal
 from .arguments import non_negative_float, positive_int
 
 
@@ -55,10 +56,14 @@ def main(argv: Sequence[str] | None = None) -> int:
         window=args.window,
         max_pause_seconds=args.max_delay,
     )
+    shutdown = ShutdownSignal()
+    shutdown.install()
     publisher = KafkaEventPublisher(settings, args.topic)
     started = time.time()
     try:
-        sent = produce_orders(publisher, plan, random.Random(args.seed), time.time, time.sleep)
+        sent = produce_orders(
+            publisher, plan, random.Random(args.seed), time.time, time.sleep, stop=lambda: shutdown.requested
+        )
     finally:
         publisher.close()
     mode = "unkeyed" if args.no_key else "keyed by orderId"

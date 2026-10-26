@@ -55,3 +55,14 @@ def test_zero_orders_sends_nothing_but_still_flushes():
 def test_an_invalid_plan_is_rejected(kwargs):
     with pytest.raises(ValueError, match="invalid produce plan"):
         ProducePlan(**kwargs)
+
+
+def test_a_stop_request_ends_the_run_after_flushing_what_was_sent():
+    stops = iter([False, False, False, True])
+    publisher = RecordingPublisher()
+    sent = produce_orders(
+        publisher, ProducePlan(orders=10), random.Random(4), lambda: 1.0, lambda _: None, stop=lambda: next(stops)
+    )
+    assert sent == 3
+    assert len(publisher.published) == 3
+    assert publisher.flushed == 1

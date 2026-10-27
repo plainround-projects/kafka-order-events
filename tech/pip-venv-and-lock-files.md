@@ -57,6 +57,75 @@ The header records the command that produced it: `uv pip compile pyproject.toml 
 
 To refresh the locks after editing `pyproject.toml`: run the `uv pip compile` command from the header (and the same with `--extra dev -o requirements-dev.lock`).
 
+### The format of a lock file entry
+
+```text
+colorama==0.4.6 ; sys_platform == 'win32' \
+    --hash=sha256:08695f5cb7ed6e0531a20572697297273c47b8cae5a63ffc6d6ed5c201be6e44 \
+    --hash=sha256:4f1d9991f5acc0ca119f9d443620b77f9d6b33703e51011c16baf57afb285fc6
+    # via pytest
+```
+
+- `colorama==0.4.6`: the package name and the exact version.
+- `; sys_platform == 'win32'`: a **marker**. The package is installed only where the condition is true; here only on Windows. The lock file was made with `--universal`, so it carries markers for every platform it supports.
+- Each `--hash=sha256:...` line is the fingerprint of one downloadable file of that package. A package usually has several files (one per operating system and Python build), so it has several hashes; any one of them is accepted. With `--require-hashes`, pip computes the fingerprint of what it downloaded and refuses it if it is not in this list. That blocks a tampered or substituted file.
+- `# via pytest` is a comment recording *why* this package is in the file: pytest needs it. Where more than one tool needs it, each is listed.
+- `requirements-dev.lock` has 997 lines and 889 hashes. `requirements.lock` has one package, because the program needs only `kafka-python` to run.
+
+### Every package in `requirements-dev.lock` and why it is there
+
+Packages the project asked for in `pyproject.toml` are marked **direct**; all others are pulled in by them (**indirect**), and the lock file names the package that requires each.
+
+| Package | Version | Kind | What it is |
+| --- | --- | --- | --- |
+| `kafka-python` | 3.0.12 | direct | The Kafka client library the programs use. |
+| `pytest` | 9.1.1 | direct | The test runner. |
+| `pytest-cov` | 7.1.0 | direct | Makes pytest measure coverage. |
+| `ruff` | 0.17.2 | direct | The linter and formatter. |
+| `mypy` | 2.4.0 | direct | The type checker. |
+| `import-linter` | 2.15 | direct | Checks the layer rules. |
+| `pip-audit` | 2.10.1 | direct | Looks for known vulnerabilities in the locked packages. |
+| `pluggy` | 1.7.0 | via pytest, pytest-cov | pytest's plugin system. |
+| `iniconfig` | 2.3.1 | via pytest | Reads `.ini` style settings files. |
+| `packaging` | 26.3 | via pytest, pip-audit, pip-requirements-parser | Understands version numbers and requirement strings. |
+| `pygments` | 2.21.0 | via pytest, rich | Colours code in terminal output. |
+| `colorama` | 0.4.6 | via pytest (Windows only) | Makes colour codes work in the Windows terminal. |
+| `coverage` | 7.17.0 | via pytest-cov | The tool that actually records which lines ran. |
+| `ast-serialize` | 0.13.1 | via mypy | A support package that mypy requires; the lock file names mypy as the reason it is here. |
+| `librt` | 0.16.0 | via mypy (not PyPy) | A support package that mypy requires (not installed on PyPy, an alternative Python); the lock file names mypy as the reason. |
+| `mypy-extensions` | 1.1.0 | via mypy | Extra type tools that mypy uses. |
+| `pathspec` | 1.1.1 | via mypy | Matches file paths against `.gitignore`-style patterns. |
+| `typing-extensions` | 4.16.0 | via mypy, import-linter, cyclonedx-python-lib | Newer typing features for older Pythons. |
+| `click` | 8.5.0 | via import-linter | A toolkit for command-line programs. |
+| `grimp` | 3.18 | via import-linter | Builds the graph of which module imports which. |
+| `rich` | 15.0.0 | via import-linter, pip-audit | Formats tables and colour in the terminal. |
+| `markdown-it-py` | 4.2.0 | via rich | Parses Markdown text. |
+| `mdurl` | 0.1.2 | via markdown-it-py | Helpers for web addresses inside Markdown. |
+| `cachecontrol` | 0.14.4 | via pip-audit | Adds HTTP caching to web requests. |
+| `filelock` | 4.2.4 | via cachecontrol | Lets two programs avoid writing the same file at once. |
+| `msgpack` | 1.2.4 | via cachecontrol | A compact binary data format used by the cache. |
+| `requests` | 2.34.2 | via pip-audit, cachecontrol | A friendly library for making web requests. |
+| `urllib3` | 2.8.0 | via requests | The low-level web connection code under `requests`. |
+| `certifi` | 2026.10.23 | via requests | The list of trusted certificate authorities for HTTPS. |
+| `charset-normalizer` | 3.5.2 | via requests | Guesses how a piece of text was encoded. |
+| `idna` | 3.20 | via requests | Handles internationalized domain names. |
+| `cyclonedx-python-lib` | 11.12.0 | via pip-audit | Builds a software bill of materials (a list of what a program contains). |
+| `license-expression` | 30.4.4 | via cyclonedx-python-lib | Reads licence expressions such as `MIT OR Apache-2.0`. |
+| `boolean-py` | 5.0 | via license-expression | A small boolean-logic library. |
+| `packageurl-python` | 0.17.6 | via cyclonedx-python-lib | Reads and writes package addresses (`pkg:pypi/...`). |
+| `py-serializable` | 2.1.0 | via cyclonedx-python-lib | Helps turn objects into XML and JSON. |
+| `defusedxml` | 0.7.1 | via py-serializable | Reads XML safely. |
+| `sortedcontainers` | 2.4.0 | via cyclonedx-python-lib | Collections that stay sorted. |
+| `pip-api` | 0.0.35 | via pip-audit | Calls pip from Python code. |
+| `pip` | 26.2.2 | via pip-api | The installer itself. |
+| `pip-requirements-parser` | 32.0.1 | via pip-audit | Reads requirements files. |
+| `pyparsing` | 3.3.3 | via pip-requirements-parser | A library for writing text parsers. |
+| `platformdirs` | 4.13.5 | via pip-audit | Finds the right folder for caches on each operating system. |
+| `tomli` | 2.5.0 | via pip-audit | Reads TOML files. |
+| `tomli-w` | 1.2.0 | via pip-audit | Writes TOML files. |
+
+The three biggest groups hang off `pip-audit` (web access and the bill of materials), `mypy` and `pytest`. Running `make audit` checks every package in this table against the public list of known vulnerabilities.
+
 ## Try it yourself
 
 1. `.venv/bin/pip --version` prints the pip version and the path inside `.venv`.

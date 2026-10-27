@@ -2,7 +2,7 @@
 
 ## What it is
 
-An **environment variable** is a named setting that every program started by a shell can read, such as `POSTGRES_PORT=5433`. A **`.env` file** is a plain text file of `NAME=value` lines that tools load into the environment so you do not have to type them each time. This repository ships `.env.example` (the template, safe to commit). You may copy it to `.env` (ignored by git) to change a value; nothing in this project is secret, and everything works without a `.env`.
+An **environment variable** is a named setting that every program started by a shell can read, such as `LOG_LEVEL=INFO`. A **`.env` file** is a plain text file of `NAME=value` lines that tools load into the environment so you do not have to type them each time. This repository ships `.env.example` (the template, safe to commit). You may copy it to `.env` (ignored by git) to change a value; nothing in this project is secret, and everything works without a `.env`.
 
 ## Why this repository uses it
 

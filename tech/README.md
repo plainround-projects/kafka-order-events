@@ -17,6 +17,7 @@ These notes teach every technology this repository uses, from zero, by walking t
 | [dockerfile.md](dockerfile.md) | The recipe that packages the programs as an image. |
 | [docker-compose.md](docker-compose.md) | The file that starts the Kafka container. |
 | [yaml.md](yaml.md) | The format of the compose file and the CI workflow. |
+| [dotenv.md](dotenv.md) | The `.env.example` file and how settings reach the programs. |
 | [toml.md](toml.md) | The format of `pyproject.toml`, where the project and its tools are configured. |
 | [github-actions.md](github-actions.md) | The automatic checks that run on every push. |
 | [pytest.md](pytest.md) | Runs the unit, integration and end-to-end tests. |
@@ -32,7 +33,7 @@ These notes teach every technology this repository uses, from zero, by walking t
 
 1. The language: [python.md](python.md).
 2. The domain: [apache-kafka.md](apache-kafka.md), [kafka-python.md](kafka-python.md), [json.md](json.md), [logfmt.md](logfmt.md).
-3. The build and run tools: [make.md](make.md), [bash.md](bash.md), [pip-venv-and-lock-files.md](pip-venv-and-lock-files.md), [toml.md](toml.md), [yaml.md](yaml.md).
+3. The build and run tools: [make.md](make.md), [bash.md](bash.md), [pip-venv-and-lock-files.md](pip-venv-and-lock-files.md), [toml.md](toml.md), [yaml.md](yaml.md), [dotenv.md](dotenv.md).
 4. The runtime pieces: [docker.md](docker.md), [docker-compose.md](docker-compose.md), [dockerfile.md](dockerfile.md).
 5. The tests and checks: [pytest.md](pytest.md), [pytest-cov.md](pytest-cov.md), [ruff.md](ruff.md), [mypy.md](mypy.md), [import-linter.md](import-linter.md), [pip-audit.md](pip-audit.md), [github-actions.md](github-actions.md), [editorconfig.md](editorconfig.md).
 

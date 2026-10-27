@@ -8,6 +8,7 @@ A runnable order-events stream on a single-node Kafka 4 cluster: a producer publ
 | **Planned hours** | 6 |
 | **Level** | Beginner |
 | **Architecture** | [ARCHITECTURE.md](ARCHITECTURE.md), decisions in [docs/adr](docs/adr) |
+| **Technology notes** | [tech/README.md](tech/README.md): one file per technology used here, written for a reader who knows none of them |
 
 ## Prerequisites
 

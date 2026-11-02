@@ -1,6 +1,6 @@
 # Python: the application layer, file by file
 
-## What this note covers
+## What it is
 
 The folder `src/order_events/application/` holds the **use cases**: the things the program does, written as plain functions. "Produce 1,000 orders", "read the stream and check the order", "work out the lag", "check the health". A use case does not know about Kafka. It only knows the **ports**, small descriptions of what it needs from the outside world ("something that can publish an event", "something that can poll events"). The real Kafka code (in `infrastructure/`) and the fake in-memory versions used in tests both fit those descriptions.
 
@@ -12,7 +12,11 @@ Words used below, explained once here and again where they first appear:
 - A **type hint** is a note such as `count: int` saying what kind of value is expected. Python ignores hints while running; `mypy` reads them.
 - A **dataclass** is a class whose repetitive methods (how to build it, compare it, print it) Python writes for you from a list of fields; `frozen=True` makes it read-only.
 
-## The files
+## Why this repository uses it
+
+The use cases are what the program does: produce orders, read them and check the order, work out lag, check health. Writing them against small descriptions (ports) of what they need, and not against `kafka-python`, means a test can run the whole produce or read loop with in-memory fakes, with a fake clock, in milliseconds, and the real Kafka code can change without touching them.
+
+## Where it appears
 
 | File | What it holds |
 | --- | --- |
@@ -23,7 +27,15 @@ Words used below, explained once here and again where they first appear:
 | `application/group_lag.py` | The use case "how far behind is the group". |
 | `application/health.py` | The use case "ask every dependency if it works". |
 
-## `application/__init__.py`
+## How it works underneath
+
+A **port** is written as a `Protocol` class: a list of method names and signatures. Python does not check at run time that an object has them; `mypy` checks, before the program runs, that whatever is passed where a port is expected has the right methods (so an adapter or a fake needs no "implements" word). A use case is an ordinary function that receives its collaborators as parameters, including the clock, the sleep function and the stop test as small functions (**dependency injection**), so a test passes fakes and a real program passes `time.time` and `time.sleep`. Control flow is plain Python: loops, `try`/`except`, early `return`. The rule that this layer imports only the domain and the standard library is checked by `import-linter`. Here `produce_orders` and `read_orders` take `pause`, `sleep`, `clock` and `stop` as parameters, which is how a test finishes a loop that would otherwise wait for real time.
+
+## Walkthrough of this repository's use
+
+Every source file of this layer is read below, in the order of the table above. Each block is a piece of the real file, copied exactly, followed by an explanation in plain words.
+
+### `application/__init__.py`
 
 ```python
 """Use cases and the ports they need. Depends on the domain only."""
@@ -31,7 +43,7 @@ Words used below, explained once here and again where they first appear:
 
 Only a docstring. Its presence turns the folder into a package, and its sentence states the layer's rule: it depends on the domain only.
 
-## `application/ports.py`
+### `application/ports.py`
 
 A **port** is a description of what a use case needs, written without saying how it is done. The word comes from the "ports and adapters" design (also called hexagonal architecture): the use cases sit in the middle, the ports are the sockets on their wall, and **adapters** (in `infrastructure/`) are the plugs that fit the sockets. You can swap plugs without touching the middle.
 
@@ -113,9 +125,9 @@ class HealthProbe(Protocol):
 
 - Lines 51 to 57: `HealthProbe` has a **class attribute** `name: str` (every probe must have a name) and a method `check()` that returns a short detail text on success and raises `ProbeFailedError` otherwise. `ProbeFailedError` is defined in `health.py` next to it.
 
-## `application/produce_orders.py`
+### `application/produce_orders.py`
 
-### The plan
+#### The plan
 
 ```python
 """Use case: publish the lifecycle events of a range of orders."""
@@ -152,7 +164,7 @@ class ProducePlan:
 - A field with `= value` has a **default**, so the caller may leave it out. Fields without a default must come first.
 - Lines 24 to 26: `__post_init__` runs right after the object is built and refuses nonsense. `or` joins conditions: if any one is true, the whole line is true. `{self}` inside the f-string prints the plan, so the message shows the bad values.
 
-### The function
+#### The function
 
 ```python
 def produce_orders(
@@ -194,9 +206,9 @@ def produce_orders(
 - Line 52: after the loop, whether it finished or was stopped, `publisher.flush()` waits until everything sent has been acknowledged.
 - Line 53: return the count.
 
-## `application/read_orders.py`
+### `application/read_orders.py`
 
-### The two small records
+#### The two small records
 
 ```python
 """Use case: read the order stream as one member of a group and check every order's sequence."""
@@ -233,7 +245,7 @@ class ReadResult:
 - Lines 12 to 19: `ReadPlan`, a frozen dataclass of choices, each with a default. `idle_timeout_seconds: float | None = None` means "a number of seconds, or `None`, meaning run until told to stop". The `#` after each field is a **comment**: text Python ignores. `work_delay_seconds` is artificial work per event; the lag demo sets it to build a backlog on purpose. `order_prefix` limits the check to orders whose id starts with it (so a second run's ids do not mix with a first). `poll_seconds` is how long one poll waits.
 - Lines 22 to 28: `ReadResult` holds the number of events read, the ordering report from the domain, and `first_histories`, a tuple of the first few orders, each as (order id, tuple of partitions, tuple of event type texts). The long hint is only a description of that shape.
 
-### The function
+#### The function
 
 ```python
 def read_orders(
@@ -287,7 +299,7 @@ def read_orders(
 - Lines 59 to 62: build the tuple of histories for the first `histories` orders, using a generator expression.
 - Line 63: return the result with the checker's report.
 
-## `application/group_lag.py`
+### `application/group_lag.py`
 
 ```python
 """Use case: the lag of a consumer group on a topic."""
@@ -305,7 +317,7 @@ def group_lag(reader: OffsetReader, group_id: str, topic: str) -> dict[int, int]
 
 The whole use case is one line (line 11): ask the reader for the end offsets and the committed offsets, hand both to the domain's `compute_lag`, return the answer. It is a function of three values: the reader (any `OffsetReader`), the group id and the topic. The use case exists so the command-line program does not have to know which two calls to make.
 
-## `application/health.py`
+### `application/health.py`
 
 ```python
 """Use case: ask every dependency whether it is usable."""
@@ -396,3 +408,12 @@ Expected: `6`, then six tuples. Each order's sequences appear as 1, 2, 3 in that
 1. Why does `produce_orders` take `pause` as a parameter instead of calling `time.sleep`? (A test can pass a fake and not wait.)
 2. What does the `*` in `read_orders`'s parameter list do? (Forces the following parameters to be passed by name.)
 3. What does an empty `HealthReport` say about health, and why? (Healthy, because `all` of nothing is true.)
+4. What does `read_orders` do when the idle timeout passes with no matching event? (It leaves the loop with `break` and returns the result.)
+5. Why does `check_health` catch only `ProbeFailedError`? (A failed probe is an expected answer to report; any other error is a bug and should stop the program.)
+
+## Further reading
+
+- PEP 544, Protocols (structural typing): https://peps.python.org/pep-0544/
+- Python 3.12 `typing`: https://docs.python.org/3.12/library/typing.html
+- Python 3.12 `dataclasses`: https://docs.python.org/3.12/library/dataclasses.html
+- Python 3.12 `logging`: https://docs.python.org/3.12/library/logging.html

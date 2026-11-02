@@ -1,6 +1,6 @@
 # Python: the tests, file by file
 
-## What this note covers
+## What it is
 
 Everything under `tests/` is Python written to check the rest of the code. This note walks through **every test file and every test**. How the tests are *started* (the `pytest` command, markers, coverage numbers) is in `tech/pytest.md` and `tech/pytest-cov.md`; here the focus is on what each test proves and how it is written.
 
@@ -13,7 +13,11 @@ Ideas you need first:
 - **Unit tests** (in `tests/unit/`) need no Kafka and run in about a second. **Integration tests** (`tests/integration/`) use the real broker from `docker-compose.yml`. **End-to-end tests** (`tests/e2e/`) start the real command-line programs as separate processes.
 - The folders of tests are packages (each has an empty `__init__.py`), which is why a test can write `from tests.unit.application.fakes import ...`. The eight empty `__init__.py` files under `tests/` contain nothing at all; their presence is the whole job.
 
-## The files
+## Why this repository uses it
+
+The lesson's claims (a key keeps an order on one partition, an unkeyed run breaks the order, eight consumers leave two idle, lag grows and drains) are only claims until something checks them. The tests check them at three levels: fast unit tests with fakes, adapter tests on the real broker, and end-to-end tests through the command-line programs.
+
+## Where it appears
 
 | File | What it checks |
 | --- | --- |
@@ -33,7 +37,15 @@ Ideas you need first:
 | `tests/integration/test_kafka_adapters.py` | The Kafka adapters on a real broker. |
 | `tests/e2e/test_lesson_scenario.py` | The whole lesson through the command-line programs. |
 
-## `tests/conftest.py`: fixtures
+## How it works underneath
+
+pytest imports every file named `test_*.py`, calls every function named `test_*`, and counts a call that returns as a pass and a call that raises as a failure. It rewrites plain `assert` statements so a failure shows both sides. A **fixture** is a function marked `@pytest.fixture`; pytest looks at a test's parameter names, runs the fixture of each name first and passes the result in; code after a `yield` in a fixture runs as clean-up after the test. `@pytest.mark.parametrize` turns one function into several test cases. **Marks** such as `integration` and `e2e` label tests so they can be selected with `-m`; `--strict-markers` makes an unknown mark an error. A **fake** is a small class with the methods of a port that records calls, which is why unit tests need no broker. Here the unit tests use a fake clock and a scripted source; the integration tests create a topic with a random name per test and delete it afterwards; the end-to-end tests start the real programs as separate processes with `subprocess`.
+
+## Walkthrough of this repository's use
+
+Every test file is read below, in the order of the table above. Each block is a piece of the real file, copied exactly, followed by an explanation in plain words.
+
+### `tests/conftest.py`: fixtures
 
 ```python
 """Fixtures for the tests that need the broker from docker-compose.yml."""
@@ -75,7 +87,7 @@ def topic() -> Iterator[str]:
 - Lines 16 to 18: the `settings` fixture. `@pytest.fixture` turns the function into a fixture. It builds a `Settings` from a dictionary holding only the address, so the real environment does not leak in.
 - Lines 21 to 29: the `topic` fixture. It makes a unique topic name with a random 8-character suffix (`uuid.uuid4().hex[:8]`), creates it with six partitions and one replica, then runs `yield name`. A fixture with `yield` runs everything before the `yield` as set-up and gives the value to the test; when the test ends, pytest resumes the function after the `yield`, which is the clean-up: delete the topic and close the admin client. Each test thus gets a fresh topic and cannot see another test's events.
 
-## `tests/unit/domain/test_events.py`
+### `tests/unit/domain/test_events.py`
 
 ```python
 import itertools
@@ -186,7 +198,7 @@ def test_interleave_rejects_a_window_below_one():
 - Lines 83 to 85: timestamps are taken at the moment each event is yielded: `100.0, 101.0, 102.0` from the counting clock.
 - Lines 88 to 90: a window of 0 raises `ValueError` mentioning "window". `list(...)` is needed because a generator does not run until something asks it for items.
 
-## `tests/unit/domain/test_ordering.py`
+### `tests/unit/domain/test_ordering.py`
 
 ```python
 from order_events.domain.events import EventType, OrderEvent
@@ -262,7 +274,7 @@ def test_the_summary_line_names_the_three_numbers():
 - Lines 47 to 54: the history lists the type texts in arrival order; unknown orders give empty tuples; `first_orders(5)` returns just `("a",)`.
 - Lines 57 to 62: the summary line has exactly the expected text.
 
-## `tests/unit/domain/test_lag.py`
+### `tests/unit/domain/test_lag.py`
 
 ```python
 from order_events.domain.lag import compute_lag
@@ -280,7 +292,7 @@ def test_a_partition_with_no_commit_counts_from_zero():
 - Lines 4 and 5: end minus committed per partition: 100 - 40 = 60 and 80 - 80 = 0.
 - Lines 8 to 10: a partition with committed `None`, and one missing from the committed dictionary, both count from zero. The second assertion proves `committed.get(partition) or 0` handles a missing key.
 
-## `tests/unit/application/fakes.py`
+### `tests/unit/application/fakes.py`
 
 ```python
 """In-memory stand-ins for the application's ports."""
@@ -350,7 +362,7 @@ class FixedOffsets:
 - Lines 51 to 59: `FixedOffsets` returns the two offset dictionaries it was built with. `self._end, self._committed = end, committed` assigns two attributes in one line.
 - None of these classes names the protocol it fits. They have the right methods, which is enough.
 
-## `tests/unit/application/test_produce_orders.py`
+### `tests/unit/application/test_produce_orders.py`
 
 ```python
 import random
@@ -435,7 +447,7 @@ def test_a_stop_request_ends_the_run_after_flushing_what_was_sent():
 - Lines 51 to 57: `@pytest.mark.parametrize("kwargs", [...])` runs the same test once for each item in the list, each time passing that dictionary as `kwargs`. The four dictionaries are four bad plans; `ProducePlan(**kwargs)` unpacks a dictionary into named arguments. Each must raise `ValueError` mentioning "invalid produce plan".
 - Lines 60 to 68: a stop request. `stops = iter([False, False, False, True])` is an iterator, and `stop=lambda: next(stops)` answers false three times, then true. So three events are sent, three are recorded, and the flush still happens once.
 
-## `tests/unit/application/test_read_orders.py`
+### `tests/unit/application/test_read_orders.py`
 
 ```python
 from order_events.application.ports import Delivery
@@ -534,7 +546,7 @@ def test_the_idle_clock_restarts_whenever_events_arrive():
 - Lines 72 to 74: with no idle timeout it keeps polling until `stop` says so (after five polls).
 - Lines 77 to 81: the idle clock restarts whenever events arrive: three batches one second apart do not trigger a 2.5-second timeout.
 
-## `tests/unit/application/test_group_lag_and_health.py`
+### `tests/unit/application/test_group_lag_and_health.py`
 
 ```python
 from order_events.application.group_lag import group_lag
@@ -580,7 +592,7 @@ def test_no_probes_is_healthy():
 - Lines 25 to 32: a report is healthy only if every probe is; the results list shows each probe's name, ok flag and detail.
 - Lines 35 and 36: no probes is healthy.
 
-## `tests/unit/infrastructure/test_codec.py`
+### `tests/unit/infrastructure/test_codec.py`
 
 ```python
 import json
@@ -623,7 +635,7 @@ def test_anything_that_is_not_a_valid_event_is_rejected(raw):
 - Lines 15 to 17: the JSON uses the lesson's field names (`orderId`, `type`, `sequence`, `ts`).
 - Lines 20 to 34: seven bad inputs, each of which must raise `MalformedEventError`: not JSON (`b"x"`), JSON of the wrong shape (`b"[]"`, `b"{}"`), an unknown type (`OrderRefunded`), a sequence that is not a number (`"two"`), an empty id, and a sequence of 0. The `b'...'` prefix makes bytes literals.
 
-## `tests/unit/infrastructure/test_settings.py`
+### `tests/unit/infrastructure/test_settings.py`
 
 ```python
 import pytest
@@ -686,7 +698,7 @@ def test_settings_read_the_process_environment_by_default(monkeypatch):
 - Lines 34 to 48: seven unusable settings are rejected with a message containing the variable's name (`match=next(iter(environ))` takes the first key of the dictionary).
 - Lines 51 to 53: `monkeypatch` is a built-in fixture that changes the environment for one test and puts it back afterwards; `monkeypatch.setenv("TOPIC", ...)` proves `Settings.from_env()` with no argument reads the real process environment.
 
-## `tests/unit/infrastructure/test_retry.py`
+### `tests/unit/infrastructure/test_retry.py`
 
 ```python
 import random
@@ -785,7 +797,7 @@ def test_at_least_one_attempt_is_required():
 - Lines 70 to 80: `on_retry` is called with attempts 1 and 2.
 - Lines 83 to 85: zero attempts raises `ValueError`.
 
-## `tests/unit/infrastructure/test_logging_and_shutdown.py`
+### `tests/unit/infrastructure/test_logging_and_shutdown.py`
 
 ```python
 import io
@@ -862,7 +874,7 @@ def test_sigterm_sets_the_flag_once_installed():
 - Lines 49 to 53: a new `ShutdownSignal` is not set; `request()` sets it.
 - Lines 56 to 65: really sends the process `SIGTERM` with `signal.raise_signal(signal.SIGTERM)` after `install()`, and checks the flag. The `try ... finally` puts the original signal handlers back so other tests are not affected.
 
-## `tests/unit/interfaces/test_arguments_and_clis.py`
+### `tests/unit/interfaces/test_arguments_and_clis.py`
 
 ```python
 import argparse
@@ -918,7 +930,7 @@ def test_a_bad_environment_stops_every_program_with_exit_code_two(monkeypatch, c
 - Lines 33 to 37: the consumer's defaults: no idle timeout, no delay, no history.
 - Lines 40 to 44: with a bad address in the environment, `produce_cli.main(...)` and `consume_cli.main([])` both return 2. `capsys` is a built-in fixture that captures what the code prints; `.readouterr().err` is everything written to stderr.
 
-## `tests/integration/test_kafka_adapters.py`
+### `tests/integration/test_kafka_adapters.py`
 
 These tests need `make up` first. They use real topics and a real broker.
 
@@ -1062,7 +1074,7 @@ def test_the_health_probe_passes_for_the_designed_topic_and_fails_for_a_missing_
 - Lines 96 to 106: lag. A group reads 20 orders (60 events) and the lag is 0. Then 50 more orders (150 events) are published with `start=1000` (different ids): the lag equals the backlog. The group reads again: all 150, and the lag is 0 again. This is the lesson's lag story in miniature.
 - Lines 109 to 118: the health probe is healthy for the topic made by the fixture and unhealthy for `no-such-topic`, with the detail containing `expected 6`.
 
-## `tests/e2e/test_lesson_scenario.py`
+### `tests/e2e/test_lesson_scenario.py`
 
 ```python
 """The lesson's scenario through the command-line programs, as the Makefile runs it: make up && make test-e2e."""
@@ -1163,3 +1175,13 @@ Break something on purpose: in `src/order_events/domain/lag.py` change `end - (c
 1. What makes pytest treat a function as a test? (A name starting with `test_` in a file whose name starts with `test_`.)
 2. What does a fixture with `yield` do after the test finishes? (Runs the code after the `yield`: the clean-up.)
 3. Why does the integration test use a new group id every time? (A new group has no committed offsets, so it starts from the earliest record.)
+4. How does each integration test get a topic of its own? (The `topic` fixture creates a topic with a random name and deletes it after the test.)
+5. What does `--strict-markers` do? (It makes a test mark that is not registered in `pyproject.toml` an error, which catches typos.)
+
+## Further reading
+
+- pytest: fixtures: https://docs.pytest.org/en/stable/how-to/fixtures.html
+- pytest: parametrize: https://docs.pytest.org/en/stable/how-to/parametrize.html
+- pytest: monkeypatch: https://docs.pytest.org/en/stable/how-to/monkeypatch.html
+- pytest: capturing output (`capsys`): https://docs.pytest.org/en/stable/how-to/capture-stdout-stderr.html
+- pytest: marks: https://docs.pytest.org/en/stable/how-to/mark.html

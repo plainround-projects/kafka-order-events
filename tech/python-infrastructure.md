@@ -1,6 +1,6 @@
 # Python: the infrastructure layer, file by file
 
-## What this note covers
+## What it is
 
 The folder `src/order_events/infrastructure/` holds the **adapters**: the code that touches the outside world. Kafka (through the `kafka-python` library), environment variables, the terminal's log output, the clock's `sleep`, and operating-system signals. Each adapter fits one of the **ports** (the descriptions in `application/ports.py`), so the use cases never know which real thing is behind them.
 
@@ -12,7 +12,11 @@ Three words used below:
 - A **library** is code written by other people that you install and import. `kafka-python` is the library that speaks Kafka's network protocol.
 - The **environment** is a set of named text values (like `TOPIC=order-events`) that the operating system gives every program when it starts. They are called **environment variables**.
 
-## The files
+## Why this repository uses it
+
+Everything that touches the outside world is kept in one layer: the Kafka producer, consumer and offset reader, the environment, the log format, retries and signals. Each adapter fits a port, so the Kafka library is imported in this layer only, and each can be checked against the real broker in the integration tests.
+
+## Where it appears
 
 | File | Role |
 | --- | --- |
@@ -27,7 +31,15 @@ Three words used below:
 | `kafka_offsets.py` | Implements `OffsetReader`: end offsets and committed offsets. |
 | `kafka_health.py` | Implements `HealthProbe`: can I reach the broker, and are there six partitions? |
 
-## `infrastructure/__init__.py`
+## How it works underneath
+
+An **adapter** is a class that wraps a library and exposes only the methods of a port. Creating a client object (a producer, a consumer, a connection) opens network connections, and the Kafka clients also start background threads that send and fetch. Settings are read once at start from `os.environ`, the dictionary of environment variables the operating system gave the process, and checked at once. **Retry with backoff** repeats a failing call with growing, slightly random pauses. A **signal** such as Ctrl+C or `docker stop` makes the operating system call a function registered with `signal.signal`; Python runs it in the main thread between two steps of the program, and here it only raises a flag that the work loops test. Library errors are caught at the edge and re-raised as the application's own named errors, so the layers above never see a library class. Here the producer uses `acks="all"`, the consumer has auto-commit on (every second, and once more on close), and the offset reader joins no group, so measuring lag never causes a rebalance.
+
+## Walkthrough of this repository's use
+
+Every source file of this layer is read below, in the order of the table above. Each block is a piece of the real file, copied exactly, followed by an explanation in plain words.
+
+### `infrastructure/__init__.py`
 
 ```python
 """Adapters: Kafka clients, settings, logging, retries, signals. Implements the application's ports."""
@@ -35,7 +47,7 @@ Three words used below:
 
 Only a docstring: it marks the folder as a package and states the layer's job.
 
-## `codec.py`: the JSON wire format
+### `codec.py`: the JSON wire format
 
 A **codec** is a pair of functions, one that encodes data into bytes and one that decodes bytes back. **JSON** is a text format for data: `{"orderId": "order-00042", "sequence": 1}` is an object (a set of named values) written in curly braces. See `tech/json.md`.
 
@@ -88,7 +100,7 @@ def decode_event(raw: bytes) -> OrderEvent:
 
 Why validate on the way in? Bytes from the network cannot be trusted. Everything past this function works with an `OrderEvent` that is known to be well formed.
 
-## `settings.py`: the environment, checked once
+### `settings.py`: the environment, checked once
 
 ```python
 """Configuration from the environment, validated once at startup (twelve-factor)."""
@@ -178,7 +190,7 @@ class Settings:
 
 **Fail fast:** every wrong value stops the program at startup with a message naming the variable, instead of crashing later in the middle of a run.
 
-## `logging.py`: one line per event
+### `logging.py`: one line per event
 
 **Logging** is a program writing a line of text about what it is doing. **Logfmt** is a simple format: `key=value key=value ...` on one line. See `tech/logfmt.md`.
 
@@ -251,7 +263,7 @@ def configure_logging(level: str, stream: TextIO | None = None) -> None:
 - Lines 39 to 46: `configure_logging(level, stream=None)`. `logging.StreamHandler(stream or sys.stderr)` is a handler that writes records to a stream; `stream or sys.stderr` uses the given stream or, when `None`, stderr. `handler.setFormatter(...)` attaches the formatter. `root = logging.getLogger()` is the **root logger**, the parent of all loggers. `root.handlers[:] = [handler]` replaces its list of handlers in place, so calling the function twice does not print every line twice ("safe to call twice"). `root.setLevel(level)` drops records below the level.
 - Line 46: the library `kafka-python` logs a lot at INFO level. `logging.getLogger("kafka").setLevel(max(logging.getLevelName(level), logging.WARNING))` makes it at least `WARNING`. `getLevelName("INFO")` returns the number 20; `max` keeps the higher of that and `WARNING`'s 30. So the library is quiet unless it has a problem, whatever level the programs use.
 
-## `retry.py`: trying again, politely
+### `retry.py`: trying again, politely
 
 ```python
 """Retry with exponential backoff and jitter for calls that cross the network."""
@@ -314,7 +326,7 @@ def retry[T](
 - Line 37: sleep the computed time. `min(cap, base * 2 ** (attempt - 1))` is the capped pause; `jitter.uniform(0.5, 1.0)` is the random factor.
 - Line 38: this line can never run (the loop either returns or raises), but `mypy` cannot prove that. `raise AssertionError("unreachable")` satisfies it, and the comment `# pragma: no cover` tells the coverage tool not to count the line as untested.
 
-## `shutdown.py`: leaving cleanly
+### `shutdown.py`: leaving cleanly
 
 A **signal** is a message the operating system sends to a running program. `SIGINT` is sent when you press Ctrl+C in the terminal. `SIGTERM` is the polite "please stop" that `docker stop` sends. By default Python stops on SIGINT with an error and the program may die in the middle of a batch.
 
@@ -359,7 +371,7 @@ class ShutdownSignal:
 
 The work loops (`produce_orders`, `read_orders`) call `stop()` (which here is `lambda: shutdown.requested`) between units of work. So a Ctrl+C lets the current event finish, the producer flush and the consumer commit and leave its group, instead of dying half-way.
 
-## `kafka_publisher.py`: the producer adapter
+### `kafka_publisher.py`: the producer adapter
 
 ```python
 """Adapter: publish order events with kafka-python."""
@@ -412,7 +424,7 @@ class KafkaEventPublisher:
 - Lines 30 and 31: `flush` waits up to the timeout for everything in the buffer to be acknowledged.
 - Lines 33 and 34: `close` flushes again and shuts the connections.
 
-## `kafka_source.py`: the consumer adapter
+### `kafka_source.py`: the consumer adapter
 
 ```python
 """Adapter: read order events as a member of a consumer group with kafka-python."""
@@ -503,7 +515,7 @@ class KafkaEventSource:
 - Lines 64 to 67: `assigned_partition_count` is used by the scale demo to know when the group has settled.
 - Lines 69 and 70: `close` commits and leaves the group.
 
-## `kafka_offsets.py`: reading offsets without joining the group
+### `kafka_offsets.py`: reading offsets without joining the group
 
 ```python
 """Adapter: committed and log-end offsets, read without joining the group."""
@@ -580,7 +592,7 @@ class KafkaOffsetReader:
 - Lines 45 to 57: `end_offsets`. The inner function `read` does one attempt. `consumer.partitions_for_topic(topic) or ()` returns the set of partition numbers (or `()` if the topic is unknown). `consumer.end_offsets(partitions)` asks the broker for the log-end offset of each. The dictionary comprehension turns the `TopicPartition` keys into plain numbers. `try ... finally: consumer.close(autocommit=False)` always closes the connection, even if an error was raised, and without committing anything. `self._with_retry(read)` runs `read` with the retry rules. The line `result: Mapping[int, int] = ...` exists only to tell `mypy` the type of an untyped value.
 - Lines 59 to 70: `committed_offsets` is the same, but builds the consumer with the group's id and calls `consumer.committed(TopicPartition(...))` per partition. Asking for committed offsets of a group *without subscribing* reads them from the broker without joining the group, so the demo's measurement does not trigger a rebalance.
 
-## `kafka_health.py`: the health check
+### `kafka_health.py`: the health check
 
 ```python
 """Adapter: is the broker reachable and does the topic have the partitions the design calls for?"""
@@ -686,3 +698,15 @@ Expected: two `would sleep` lines (the first between 0.5 and 1.0, the second bet
 1. Why does `KafkaOffsetReader` never call `subscribe`? (So it does not join the group and cause a rebalance.)
 2. What are `acks="all"`, and what do they mean with one broker? (Wait for all in-sync replicas; here the one broker.)
 3. What does `from error` do on a `raise`? (Records the original error as the cause.)
+4. Why does the offset reader call `consumer.close(autocommit=False)`? (So that closing the reader never commits offsets as a side effect.)
+5. What does the logfmt formatter do with a value that contains a space? (It wraps the value in JSON quotes so it still reads as one value.)
+
+## Further reading
+
+- Python 3.12 `os` (environment variables): https://docs.python.org/3.12/library/os.html
+- Python 3.12 `logging`: https://docs.python.org/3.12/library/logging.html
+- Python 3.12 `signal`: https://docs.python.org/3.12/library/signal.html
+- Python 3.12 `threading`: https://docs.python.org/3.12/library/threading.html
+- Python 3.12 `re`: https://docs.python.org/3.12/library/re.html
+- kafka-python documentation (the repository pins version 3.0.12): https://kafka-python.readthedocs.io/en/master/
+- Python 3.12 `json`: https://docs.python.org/3.12/library/json.html

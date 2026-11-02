@@ -1,6 +1,6 @@
 # Python: the interfaces layer, file by file
 
-## What this note covers
+## What it is
 
 The folder `src/order_events/interfaces/` holds the **command-line programs**: the four things you can start from a terminal. Each one reads its arguments, builds the real adapters, hands them to a use case, prints the result, and decides the **exit code**. They are the outermost layer: they may import everything below them, and nothing may import them.
 
@@ -10,7 +10,11 @@ Words you need first:
 - A **process** is a running program. When it ends it hands the operating system a number called its **exit code** (also called exit status). By convention `0` means success and any other number means a problem. The shell (and `make`, and CI) read that number to decide what to do next. This repository uses `0` for success, `1` for "ran but found a problem" (an unhealthy system), and `2` for "refused to start because the configuration is wrong".
 - **Standard output** (stdout) and **standard error** (stderr) are the two text streams every process has. This repository prints results to stdout and log lines to stderr, so you can save the results to a file without the logs mixed in.
 
-## The files
+## Why this repository uses it
+
+A reader needs commands to type: produce the orders, run a consumer, check health, read the lag. The programs are the only place where the real adapters are chosen and joined to the use cases, where arguments are read, and where exit codes are decided. Keeping that out of the layers below leaves them usable from tests and from other programs.
+
+## Where it appears
 
 | File | Program it defines |
 | --- | --- |
@@ -21,7 +25,15 @@ Words you need first:
 | `health_cli.py` | The health check: exit 0 when healthy. |
 | `lag_cli.py` | Prints the group's lag per partition. |
 
-## `interfaces/__init__.py`
+## How it works underneath
+
+`python -m package.module` finds the module by its dotted name and runs it with the special variable `__name__` set to `"__main__"`; the closing `if __name__ == "__main__":` block then calls `main()`. `argparse` builds a parser from the `add_argument` calls, reads the words typed after the command (`sys.argv`), converts each with its `type` function and fills a namespace; a bad argument prints a usage message and exits with code 2. `main` returns a whole number and `raise SystemExit(code)` hands it to the operating system as the process's **exit code**, which the shell, `make` and CI read. These files are the **composition root**: the one place that builds the real adapters and passes them to the use cases. Here four programs share one pattern: read settings (exit code 2 if wrong), build the adapters, run the use case in `try`/`finally`, print the result to standard output (logs go to standard error) and return 0.
+
+## Walkthrough of this repository's use
+
+Every source file of this layer is read below, in the order of the table above. Each block is a piece of the real file, copied exactly, followed by an explanation in plain words.
+
+### `interfaces/__init__.py`
 
 ```python
 """Command-line entry points. They wire adapters into use cases and own exit codes."""
@@ -29,7 +41,7 @@ Words you need first:
 
 Only a docstring; the folder becomes a package, and the sentence states the layer's job.
 
-## `arguments.py`: checking numbers typed on the command line
+### `arguments.py`: checking numbers typed on the command line
 
 ```python
 """Argument validation shared by the command-line programs."""
@@ -71,9 +83,9 @@ def non_negative_float(text: str) -> float:
 
 Together they mean `--orders -5` is refused with a clear message before any Kafka client is created.
 
-## `produce_cli.py`: the producer program
+### `produce_cli.py`: the producer program
 
-### The header and the imports
+#### The header and the imports
 
 ```python
 """Publish OrderPlaced, OrderPaid and OrderShipped for a range of orders.
@@ -103,7 +115,7 @@ from .arguments import non_negative_float, positive_int
 - Lines 9 to 13: standard-library imports: `argparse` (arguments), `random` (the generator), `sys` (for stderr), `time` (the clock and sleep), `Sequence` (a hint).
 - Lines 15 to 20: imports from the layers below. This file is where the real `KafkaEventPublisher`, the logging setup, the settings and the shutdown flag are brought together.
 
-### The parser
+#### The parser
 
 ```python
 def build_parser() -> argparse.ArgumentParser:
@@ -135,7 +147,7 @@ def build_parser() -> argparse.ArgumentParser:
 - Line 38: `--topic` defaults to `None`, which means "use `$TOPIC`", the environment variable.
 - Line 39: return the parser.
 
-### `main`
+#### `main`
 
 ```python
 def main(argv: Sequence[str] | None = None) -> int:
@@ -183,7 +195,7 @@ def main(argv: Sequence[str] | None = None) -> int:
 - Lines 69 to 71: print the one result line to stdout. In `{time.time() - started:.1f}`, `:.1f` means "one digit after the decimal point".
 - Line 72: return 0 for success.
 
-### The entry-point lines
+#### The entry-point lines
 
 ```python
 if __name__ == "__main__":
@@ -192,9 +204,9 @@ if __name__ == "__main__":
 
 `__name__` is a special variable: when a file is run directly (as `python -m ...` does) its value is `"__main__"`; when the file is merely imported by another file, it is the module's name. So these two lines run `main()` only when the file is started as a program, never when a test imports it. `SystemExit(code)` is an exception that Python treats as "end the process with this exit code".
 
-## `consume_cli.py`: one member of the consumer group
+### `consume_cli.py`: one member of the consumer group
 
-### Header, imports and constants
+#### Header, imports and constants
 
 ```python
 """A member of the consumer group `order-history`: reads events and checks each order's sequence.
@@ -226,7 +238,7 @@ REPORT_LIMIT = 5  # log the first few out-of-order events; the summary counts al
 - Line 23: a logger with an explicit name, `order_events.consume`, so its lines read `logger=order_events.consume`.
 - Line 24: `REPORT_LIMIT = 5` is a constant (capital letters): only the first five out-of-order events get their own log line, so an unkeyed run (about 1,700 of them) does not flood the screen. The summary line still counts all of them.
 
-### The parser
+#### The parser
 
 ```python
 def build_parser() -> argparse.ArgumentParser:
@@ -259,7 +271,7 @@ def build_parser() -> argparse.ArgumentParser:
 - `--prefix` limits the check to orders with that id prefix.
 - `--print-history N` prints the history of the first N orders at exit. `metavar="N"` is the name shown in the help text for the value.
 
-### `main`
+#### `main`
 
 ```python
 def main(argv: Sequence[str] | None = None) -> int:
@@ -326,7 +338,7 @@ Same start as the producer: parse arguments, read settings (exit 2 on a configur
 - Lines 94 and 95: for each of the first histories prints one line. `list(partitions)` shows `[3]`; `' -> '.join(history)` glues the event-type texts with arrows.
 - Line 96: return 0.
 
-## `health_cli.py`: the health check
+### `health_cli.py`: the health check
 
 ```python
 """Health command: exit 0 when the broker is reachable and the topic has the designed partitions.
@@ -369,7 +381,7 @@ if __name__ == "__main__":
 - Lines 26 and 27: prints one line per probe: `ok kafka: topic order-events has 6 partitions` or `FAIL kafka: ...`. The f-string contains a quoted choice inside brackets: `{'ok' if result.ok else 'FAIL'}`.
 - Line 28: `return 0 if report.healthy else 1`. This is what `make health` (and the `HEALTHCHECK` of the `Dockerfile`) use: the exit code is the answer.
 
-## `lag_cli.py`: lag per partition
+### `lag_cli.py`: lag per partition
 
 ```python
 """Print the lag of the consumer group per partition (committed offset against log-end offset).
@@ -445,3 +457,12 @@ Expected: `configuration error: BOOTSTRAP_SERVERS must be host:port[,host:port],
 1. What are the three exit codes used here, and what does each mean? (0 success, 1 unhealthy, 2 configuration or argument error.)
 2. Why is the code in `if __name__ == "__main__":` and not at the top of the file? (A test can import the module without starting the program.)
 3. Why is `publisher.close()` in a `finally` block? (It must run on success, failure and signals.)
+4. What does `--until-idle 5` do for the consumer? (It ends the program after five seconds without a new matching event.)
+5. Where do results and log lines go? (Results go to standard output; log lines go to standard error.)
+
+## Further reading
+
+- Python 3.12 `argparse`: https://docs.python.org/3.12/library/argparse.html
+- Python 3.12 `__main__` and `python -m`: https://docs.python.org/3.12/library/__main__.html
+- Python 3.12 `sys` (`exit`, `stderr`): https://docs.python.org/3.12/library/sys.html
+- Python 3.12 `time`: https://docs.python.org/3.12/library/time.html

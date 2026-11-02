@@ -44,18 +44,20 @@ A table has a header row, a line of dashes that marks it as a table, and one lin
 The three files in `docs/adr/` each follow the same five headings:
 
 ```markdown
-# 1. Key events by order id, on six partitions
+  # 1. Key events by order id, on six partitions
 
-Status: accepted, 2026-10-26
+  Status: accepted, 2026-10-26
 
-## Context
+  ## Context
 
-An order's lifecycle (`OrderPlaced`, `OrderPaid`, `OrderShipped`) must be read in the order it happened. Kafka orders records only within one partition. The topic must also let a consumer group scale, and the partition count cannot be lowered later.
+  An order's lifecycle (`OrderPlaced`, `OrderPaid`, `OrderShipped`) must be read in the order it happened. Kafka orders records only within one partition. The topic must also let a consumer group scale, and the partition count cannot be lowered later.
 
-## Decision
+  ## Decision
 
-One topic, `order-events`, with the event type inside the payload. The record key is the order id, so one order's events share a partition. Six partitions, replication factor 1 (one broker), seven-day retention.
+  One topic, `order-events`, with the event type inside the payload. The record key is the order id, so one order's events share a partition. Six partitions, replication factor 1 (one broker), seven-day retention.
 ```
+
+(The block is shown indented by two spaces so that its heading lines are not mistaken for headings of this note.)
 
 - **Title**, numbered, one decision. **Status** with a date.
 - **Context**: the forces that made a decision necessary.

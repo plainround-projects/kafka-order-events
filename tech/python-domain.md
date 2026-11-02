@@ -1,6 +1,6 @@
 # Python: the domain layer, file by file
 
-## What this note covers
+## What it is
 
 The folder `src/order_events/domain/` holds the **business rules** of the project: what an order event is, how to check that events arrive in order, and how to compute lag. "Business rules" here means rules that would still be true if you threw Kafka away. This is the innermost layer, and the one rule for it is: it may import only from Python's own standard library (the set of modules that ship with Python). `make lint` fails if a file here imports `kafka`.
 
@@ -11,7 +11,11 @@ Two words you need before starting:
 - A **module** is one file whose name ends in `.py`. A **package** is a folder of modules that contains a file called `__init__.py`. Here `order_events` is the package, and `order_events.domain` is a package inside it.
 - A **docstring** is a piece of text in triple quotes (`"""..."""`) as the first thing in a file, class or function. Python keeps it so tools and people can read what the thing is for. It does nothing when the program runs.
 
-## The files
+## Why this repository uses it
+
+The lesson asks one question: do an order's events arrive in the order they happened? The answer rests on a few plain rules: how an event is built and checked, what counts as out of order, and how lag is computed. Keeping those rules in a package that imports only the standard library means they can be tested in milliseconds with no Kafka running, and they stay true if the message system is ever replaced.
+
+## Where it appears
 
 | File | What it holds |
 | --- | --- |
@@ -22,7 +26,15 @@ Two words you need before starting:
 | `src/order_events/domain/ordering.py` | The checker that proves each order's events arrived in sequence. |
 | `src/order_events/domain/lag.py` | The one-line lag calculation. |
 
-## `src/order_events/__init__.py`
+## How it works underneath
+
+When Python loads a module it runs the file once, top to bottom. `import` lines load other modules; `class` and `def` lines create classes and functions; nothing inside a function runs until the function is called. A **class** is a blueprint and an **object** is one thing built from it. The `@dataclass` decorator reads the class's field annotations when the class is created and writes `__init__`, `__eq__` and `__repr__` for it; `frozen=True` makes assignment to a field raise an error. When code **raises** an error, Python stops the current function and looks up the chain of callers for a matching `except`; if none is found the program ends with a traceback. **Type hints** are ignored when the program runs; `mypy` reads them without running the code. The rule that this layer imports only the standard library is checked by `import-linter`, which reads the `import` lines of every file, builds a graph of who imports whom and fails if an arrow points the wrong way. Here time and randomness are not created inside the functions: `interleave` is handed an `rng` and a `clock`, so a fixed seed and a counting clock make its output exactly predictable.
+
+## Walkthrough of this repository's use
+
+Every source file of this layer is read below, in the order of the table above. Each block is a piece of the real file, copied exactly, followed by an explanation in plain words.
+
+### `src/order_events/__init__.py`
 
 ```python
 """Order events on Kafka: a keyed producer, a consumer group that checks ordering, and lag reading."""
@@ -34,7 +46,7 @@ __version__ = "0.1.0"
 - Line 3 creates a variable named `__version__` and gives it the text `"0.1.0"`. A **variable** is a name that points at a value. The double underscores on both sides are a convention meaning "this name is read by tools, not by everyday code". `0.1.0` is a version number in the usual "major.minor.patch" form. The same number is written in `pyproject.toml`.
 - Nothing else is here. Python runs this file the first time any module of the package is imported, so the file also marks `order_events` as a package.
 
-## `src/order_events/domain/__init__.py`
+### `src/order_events/domain/__init__.py`
 
 ```python
 """Pure business rules: events, ordering, lag. Depends on nothing outside the standard library."""
@@ -42,7 +54,7 @@ __version__ = "0.1.0"
 
 The file contains only a docstring. A file with this name tells Python "this folder is a package", which is what lets other files write `from order_events.domain.events import OrderEvent`. The docstring also states the layer's rule in one sentence: no imports from outside the standard library. The other three layer folders (`application`, `infrastructure`, `interfaces`) have an `__init__.py` of the same kind.
 
-## `src/order_events/domain/errors.py`
+### `src/order_events/domain/errors.py`
 
 ```python
 """Named errors of the domain."""
@@ -57,11 +69,11 @@ class MalformedEventError(ValueError):
 - Line 5: the docstring says when it is used: a record's bytes or fields do not describe a valid order event.
 - The class has no other lines. It does not need any: its value is its **name**. When a log line says `MalformedEventError`, a reader knows exactly what went wrong, instead of seeing a vague `ValueError`. Naming errors this way is one of the "production-grade" rules of this repository.
 
-## `src/order_events/domain/events.py`
+### `src/order_events/domain/events.py`
 
 This file has the most ideas. It is read in six pieces.
 
-### The imports
+#### The imports
 
 ```python
 """Order events and the pure functions that build and interleave them."""
@@ -84,7 +96,7 @@ from .errors import MalformedEventError
 - Line 8: `from enum import StrEnum` loads the base class for a fixed list of named text values (explained at line 13).
 - Line 10: `from .errors import MalformedEventError` loads the error from the file next to this one. The single dot means "from this same package". An **import** runs the other module the first time and then lets you use the names it defines.
 
-### The three event types
+#### The three event types
 
 ```python
 class EventType(StrEnum):
@@ -102,7 +114,7 @@ LIFECYCLE: tuple[EventType, ...] = tuple(EventType)
 - Lines 16 to 18: three members. The name on the left (`PLACED`) is what code uses; the text on the right (`"OrderPlaced"`) is what is written to the log. Writing the members in lifecycle order matters, because line 21 relies on it.
 - Line 21: `LIFECYCLE: tuple[EventType, ...] = tuple(EventType)`. Reading left to right: `LIFECYCLE` is a name; `: tuple[EventType, ...]` is its type hint, "a tuple whose items are all `EventType`, of any length" (the three dots mean "any number"); `tuple(EventType)` turns the enum into a **tuple**, which is a fixed, read-only list, in the order the members were written. So `LIFECYCLE` is `(PLACED, PAID, SHIPPED)`. Writing the name in capital letters is the convention for a value that never changes.
 
-### The event itself
+#### The event itself
 
 ```python
 @dataclass(frozen=True, slots=True)
@@ -129,7 +141,7 @@ class OrderEvent:
 
 Why do the check here? Because the event is a **value object**: if you hold an `OrderEvent`, it is already known to be valid. No later code has to re-check.
 
-### Building ids and one order's three events
+#### Building ids and one order's three events
 
 ```python
 def order_id_for(number: int, prefix: str = "order") -> str:
@@ -148,7 +160,7 @@ def lifecycle_events(order_id: str, ts: float) -> list[OrderEvent]:
 - Line 45: `lifecycle_events(order_id: str, ts: float) -> list[OrderEvent]` returns a **list** (a changeable ordered collection) of events.
 - Line 47: `[OrderEvent(order_id, event_type, sequence, ts) for sequence, event_type in enumerate(LIFECYCLE, start=1)]` is a **list comprehension**: a one-line way to build a list. Read it from the `for`: loop over `enumerate(LIFECYCLE, start=1)`. `enumerate` hands out pairs of (counter, item); `start=1` makes the counter begin at 1 instead of 0. For each pair, name the counter `sequence` and the item `event_type`, and build one `OrderEvent` from it. The result is three events with sequences 1, 2, 3 and types PLACED, PAID, SHIPPED, all stamped with the same `ts`.
 
-### Mixing many orders together: `interleave`
+#### Mixing many orders together: `interleave`
 
 ```python
 def interleave(
@@ -218,11 +230,11 @@ def interleave(
 
 The result: each order's events are in sequence; events from up to `window` orders are mixed; and the same seed gives the same mix.
 
-## `src/order_events/domain/ordering.py`
+### `src/order_events/domain/ordering.py`
 
 This file answers the lesson's question: *did each order's events arrive in sequence?*
 
-### Imports and the two small result types
+#### Imports and the two small result types
 
 ```python
 """Per-order sequence checking: the proof that a key keeps an order's events in order."""
@@ -263,7 +275,7 @@ class OrderingReport:
 - Lines 19 to 25: `OrderingReport` is another frozen dataclass with the final numbers: how many orders were seen, the tuple of out-of-order events, and how many orders were spread over more than one partition. A **partition** is one of the six ordered logs a Kafka topic is split into.
 - Lines 27 to 31: the method `summary` returns the one line that `make run` prints. Two f-strings written next to each other (inside brackets) are joined into one. `len(self.out_of_order)` counts the items.
 
-### The checker
+#### The checker
 
 ```python
 @dataclass
@@ -280,7 +292,7 @@ class OrderChecker:
 - Lines 38 to 41: four fields, each a container the checker keeps: the last sequence number seen per order (`dict[str, int]`, a **dictionary**: look up a value by its key), the set of partitions per order (`dict[str, set[int]]`; a **set** holds each value at most once), the history of event types per order, and the list of out-of-order events. The leading underscore on each name is a convention for "private to this class; do not touch from outside".
 - `field(default_factory=dict)` means "when building a checker, call `dict()` to make a *new* empty dictionary". It must be written this way: a plain `= {}` would share a single dictionary between all checkers, and Python's dataclasses refuse it for that reason.
 
-### Recording one event
+#### Recording one event
 
 ```python
     def observe(self, event: OrderEvent, partition: int) -> bool:
@@ -306,7 +318,7 @@ class OrderChecker:
 - Line 53: the same idea for the history list: append the type's text (`event.type.value`).
 - Line 54: return whether it was in order.
 
-### Reading the answers back
+#### Reading the answers back
 
 ```python
     @property
@@ -333,7 +345,7 @@ class OrderChecker:
 - Lines 66 and 67: `first_orders(count)` returns the first `count` order ids in the order they were first seen. Dictionaries remember insertion order, so `list(self._history)` is the ids in that order, and `[:count]` is a **slice** that takes the first `count` of them.
 - Lines 69 to 71: `report` counts orders seen in more than one partition with a **generator expression** inside `sum(...)`: `1 for seen in ... if len(seen) > 1` produces a `1` for each order that qualifies, and `sum` adds them. Then it builds the report.
 
-## `src/order_events/domain/lag.py`
+### `src/order_events/domain/lag.py`
 
 ```python
 """Consumer lag: the same numbers `kafka-consumer-groups.sh --describe` prints."""
@@ -393,3 +405,13 @@ Expected: the program stops with `order_events.domain.errors.MalformedEventError
 1. What does `{number:05d}` print for `7`? (`00007`.)
 2. Why is `rng` a parameter of `interleave` and not created inside it? (So a test can control the randomness.)
 3. Events of one order arrive as 1, 3, 2, 4. How many out-of-order events does the checker record, and why? (Two: the early 3 and the late 2. It keeps the highest sequence seen, so 4 is in order.)
+4. Why does `OrderChecker.observe` keep the highest sequence seen (`max`)? (So one swapped pair is reported as two events at most and the events after it are not blamed again.)
+5. What does `compute_lag` do for a partition the group never committed on? (It counts from offset 0, so the lag equals the log-end offset.)
+
+## Further reading
+
+- Python 3.12 `dataclasses`: https://docs.python.org/3.12/library/dataclasses.html
+- Python 3.12 `enum`: https://docs.python.org/3.12/library/enum.html
+- Python 3.12 data model (classes, special methods): https://docs.python.org/3.12/reference/datamodel.html
+- Python 3.12 built-in exceptions: https://docs.python.org/3.12/library/exceptions.html
+- Python 3.12 `random`: https://docs.python.org/3.12/library/random.html

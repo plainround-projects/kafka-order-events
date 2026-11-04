@@ -10,6 +10,24 @@ A runnable order-events stream on a single-node Kafka 4 cluster: a producer publ
 | **Architecture** | [ARCHITECTURE.md](ARCHITECTURE.md), decisions in [docs/adr](docs/adr) |
 | **Technology notes** | [tech/README.md](tech/README.md): one file per technology used here, written for a reader who knows none of them |
 
+## Architecture
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/diagrams/architecture-dark.svg">
+  <img alt="The Producer sends events keyed by orderId to the six-partition topic order-events in a single-node Kafka 4 container; Consumers 1 to 3 of the group order-history share the partitions and report to the Group coordinator, and the Lag reader reads the offsets." src="docs/diagrams/architecture.svg">
+</picture>
+
+One Producer writes to one six-partition log and one consumer group shares it; the order id as the key is what keeps an order's events in sequence, and the amber paths are the two failures the lesson drills.
+
+## How one run flows
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/diagrams/flow-dark.svg">
+  <img alt="The seven steps of make run from topic reset to the summary line, with a warning branch where make run-unkeyed sends key None and events arrive out of order." src="docs/diagrams/flow.svg">
+</picture>
+
+`make run` produces 1,000 orders and reads them back with every sequence checked, and the amber rows show what the same run does with no key.
+
 ## Prerequisites
 
 | Tool | Version | Used for |

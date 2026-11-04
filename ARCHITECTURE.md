@@ -28,6 +28,8 @@ The ordering rules, the produce plan and the read loop are the point of the less
 
 ## Data flow
 
+Drawn versions of this figure and of the walk-through: [the architecture](docs/diagrams/architecture.svg) and [one run](docs/diagrams/flow.svg).
+
 ```mermaid
 flowchart LR
     subgraph kc["Single-node Kafka 4 in a container"]

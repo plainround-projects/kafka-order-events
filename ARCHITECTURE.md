@@ -58,7 +58,7 @@ flowchart LR
 2. The **Producer** builds 1,000 orders. `interleave()` (domain) keeps up to 50 orders open at once and sends the next event of a randomly chosen open order, so events of different orders mix while each order's own events stay in sequence.
 3. For each event the producer calls `send(topic, key=orderId, value=json)`. The client hashes the key with murmur2 and takes it modulo six to choose the partition. The same key always gives the same partition.
 4. The broker appends the record to that partition's log and acknowledges it. The producer flushes at the end and prints how many events it sent.
-5. A **Consumer** joins the group `order-history` with `auto_offset_reset=earliest`. The **Group coordinator** assigns it all six partitions (it is alone) and the consumer logs `assigned partitions [0, 1, 2, 3, 4, 5]`.
+5. A **Consumer** joins the group `order-history` with `auto_offset_reset=earliest`. The **Group coordinator** assigns it all six partitions (it is alone) and the consumer logs `partitions assigned` with partitions `[0, 1, 2, 3, 4, 5]`.
 6. The consumer polls. The adapter decodes each record's JSON into an `OrderEvent` (a record that is not a valid event is logged and skipped). The `read_orders` use case asks the `OrderChecker` whether `sequence` is the last one seen for that order plus one, and appends the event type to the order's history. A mismatch is logged as a warning (the first five) and counted.
 7. After five seconds with no new events (`--until-idle 5`) or on SIGINT or SIGTERM, the consumer stops polling, closes (which commits its offsets and leaves the group) and prints the summary line and the history of the first three orders: `OrderPlaced -> OrderPaid -> OrderShipped`, each with its partition.
 
@@ -91,7 +91,7 @@ Expected result: `out-of-order events logged: 0` and `orders spread over more th
 | **No key** | Events of one order land on different partitions and arrive out of order: hundreds of `out-of-order` lines, `orders spread over more than one partition` close to the order count. | `make run-unkeyed` sends the same events with `key=None` into the same topic (same six partitions, so only the key differs) and checks only that run's orders. |
 | **Too many consumers** | Two of eight members own no partition. | `make scale N=8`, read `#PARTITIONS` in the members table. |
 | **A stopped consumer and its lag** | Lag per partition grows while no consumer runs, then falls once one reads. | `make lag`: catches the group up, stops it, produces about 50,000 events, prints the lag table, starts one slow consumer and prints the total every ten seconds until it reaches zero. |
-| **A rebalance** | Every join or leave pauses the group while partitions are reassigned. | `make scale N=3` starts consumers two seconds apart; each logs `assigned partitions [...]` again when the group changes. Stop one with `kill` and the others log a new assignment. |
+| **A rebalance** | Every join or leave pauses the group while partitions are reassigned. | `make scale N=3` starts consumers two seconds apart; each logs `partitions assigned` again when the group changes. Stop one with `kill` and the others log a new assignment. |
 | **Reading a transient assignment** | A `--describe` taken mid-rebalance shows a partial assignment. | `scripts/scale.sh` waits eight seconds after the last join before describing. Remove the wait to see it. |
 
 ## Limits of the teaching build against production
@@ -99,7 +99,7 @@ Expected result: `out-of-order events logged: 0` and `orders spread over more th
 - **One broker, replication factor 1:** no durability and no failover. Production runs three or more brokers, replication factor 3 and `min.insync.replicas=2`.
 - **No schema management:** the event is bare JSON. Production uses a schema registry and compatible evolution rules.
 - **Plain-text, unauthenticated listener:** production uses TLS and SASL or mTLS, with ACLs per topic and group.
-- **Auto-commit and no error handling:** a malformed event would crash the consumer. Production has a dead-letter path and metrics.
+- **Auto-commit and little error handling:** a malformed event is logged and skipped, so it is dropped with no record kept. Production has a dead-letter path and metrics.
 - **Lag measured by hand:** `make lag-report` and `kafka-consumer-groups.sh` give one reading; production exports lag per partition as a metric and alerts on its trend.
 - **Synthetic load from one process:** the producer is one thread with a small random pause; real producers are many services with bursts.
 - **No consumer-side ordering across partitions:** the checker only knows each order's sequence. Nothing here orders events of different orders, and nothing should.
